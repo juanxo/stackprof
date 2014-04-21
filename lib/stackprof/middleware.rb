@@ -11,25 +11,28 @@ module StackProf
       Middleware.interval = options[:interval] || 1000
       Middleware.enabled  = options[:enabled]
       Middleware.path     = options[:path] || 'tmp'
+      Middleware.slower_than = options[:slower_than] || nil
+      Middleware.faster_than = options[:faster_than] || nil
       at_exit{ Middleware.save } if options[:save_at_exit]
     end
 
     def call(env)
       enabled = Middleware.enabled?(env)
       StackProf.start(mode: Middleware.mode, interval: Middleware.interval) if enabled
+      start = Time.now
       @app.call(env)
     ensure
-      if enabled
-        StackProf.stop
-        if @num_reqs && (@num_reqs-=1) == 0
-          @num_reqs = @options[:save_every]
-          Middleware.save
-        end
+      return unless enabled
+
+      request_time = (Time.now - start) * 1000.0
+      StackProf.stop
+      if (Middleware.slower_than && request_time > Middleware.slower_than) || (Middleware.faster_than && request_time < Middleware.faster_than)
+        Middleware.save
       end
     end
 
     class << self
-      attr_accessor :enabled, :mode, :interval, :path
+      attr_accessor :enabled, :mode, :interval, :path, :slower_than, :faster_than
 
       def enabled?(env)
         if enabled.respond_to?(:call)
